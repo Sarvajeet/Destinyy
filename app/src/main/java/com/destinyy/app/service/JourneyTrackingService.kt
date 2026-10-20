@@ -98,7 +98,7 @@ class JourneyTrackingService : LifecycleService() {
         stopSelf()
     }
     override fun onDestroy() { runCatching { fused.removeLocationUpdates(callback) }; super.onDestroy() }
-    override fun onBind(intent: Intent?): IBinder? = super.onBind(intent)
+    override fun onBind(intent: Intent): IBinder? = super.onBind(intent)
 
     companion object {
         const val EXTRA_NAME = "destination_name"; const val EXTRA_LAT = "destination_lat"; const val EXTRA_LON = "destination_lon"
