@@ -13,6 +13,7 @@ Destinyy is a native Android arrival-reminder prototype. Choose a destination, s
 - Configurable 10, 5, and 2 minute reminder thresholds
 - Reminder notifications, ongoing tracking notification, arrival-radius notification, and stop-tracking action
 - Location updates requested at a moderate cadence and removed when tracking stops
+- Unit-tested fallback ETA estimator and GitHub Actions build/test workflow
 
 ## Important accuracy limitation
 The current ETA is a **rough distance-based estimate**, calculated from straight-line distance, a mode-specific average speed, and a simple route multiplier. It is **not** a road-route, live traffic, or transit timetable ETA. Geocoder place lookup also depends on the device's geocoding provider and may not return useful results offline. Treat this as an implementation prototype, not a dependable safety-critical arrival system.
@@ -24,9 +25,10 @@ The current ETA is a **rough distance-based estimate**, calculated from straight
 4. Improve ETA smoothing, stale-location handling, GPS-off/error states, and adaptive update intervals near arrival.
 5. Add unit tests for threshold crossings and instrumentation tests for permission/service lifecycle.
 6. Validate foreground-service and notification behavior across Android versions and OEM battery-management settings.
+7. Replace the straight-line fallback with a route provider for driving and walking; use a transit-capable provider for public transport.
 
 ## Build
-Open this project in Android Studio with JDK 17 and Android SDK 36. Allow Gradle sync and run the `app` configuration. A Gradle wrapper is not included yet.
+Open this project in Android Studio with JDK 17 and Android SDK 36. Allow Gradle sync and run the `app` configuration. A Gradle wrapper is not included yet. GitHub Actions is configured to run `assembleDebug` and `testDebugUnitTest` on pushes and pull requests.
 
 No Google Maps or Routes API key is included. When routing is added, keep keys out of source control and restrict them by API and application signature/package.
 
