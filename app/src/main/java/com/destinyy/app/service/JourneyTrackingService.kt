@@ -14,7 +14,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import com.destinyy.app.MainActivity
-import com.destinyy.app.R
 import com.google.android.gms.location.*
 
 class JourneyTrackingService : LifecycleService() {
@@ -66,13 +65,12 @@ class JourneyTrackingService : LifecycleService() {
             notify(ALERTS, 2600, "You've reached your destination", destinationName, true)
             stopTracking(); return
         }
-        val speed = when (mode) { "CAB_CAR" -> 24.0; "BUS" -> 16.0; "WALKING" -> 4.0; else -> 32.0 }
-        val factor = when (mode) { "CAB_CAR" -> 1.35; "BUS" -> 1.45; "WALKING" -> 1.25; else -> 1.55 }
-        val eta = kotlin.math.ceil(distance / 1000.0 * factor / speed * 60.0).toInt().coerceAtLeast(1)
+        val eta = com.destinyy.app.domain.eta.EtaEstimator.minutesFromStraightLineMeters(distance.toDouble(), mode)
         NotificationManagerCompatShim.update(this, ongoing("About $eta min away · approximate estimate"))
         if (previousEta == null) {
-            thresholds.filter { eta <= it }.minOrNull()?.let { threshold ->
-                thresholds.filter { it > threshold }.forEach(fired::add); sendReminder(threshold, eta)
+            thresholds.filter { eta <= it }.maxOrNull()?.let { threshold ->
+                thresholds.filter { it >= threshold }.forEach(fired::add)
+                sendReminder(threshold, eta)
             }
         } else thresholds.forEach { if (it !in fired && previousEta!! > it && eta <= it) sendReminder(it, eta) }
         previousEta = eta
