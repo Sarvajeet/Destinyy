@@ -170,7 +170,7 @@ class JourneyTrackingService : LifecycleService() {
         )
 
         if (eta != null) {
-            val thresholds = stop.alertMinutes.sortedDescending()
+            val thresholds = stop.alertMinutes.sorted()
             val lastEta = previousEta
             if (lastEta == null) {
                 thresholds.firstOrNull { eta <= it }?.let { threshold ->
