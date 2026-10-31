@@ -139,7 +139,7 @@ class JourneyTrackingService : LifecycleService() {
         val thresholds = stop.alertMinutes.sortedDescending()
         val lastEta = previousEta
         if (lastEta == null) {
-            thresholds.filter { eta <= it }.minOrNull()?.let { threshold ->
+            thresholds.firstOrNull { eta <= it }?.let { threshold ->
                 thresholds.filter { it >= threshold }.forEach(fired::add)
                 sendReminder(threshold, eta)
             }
