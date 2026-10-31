@@ -10,8 +10,8 @@ class GpsEtaEstimatorTest {
         val estimator = GpsEtaEstimator()
         estimator.addSpeedSample(10.0, mode = "CAB_CAR")
 
-        // 1,000 m straight-line x 1.35 road-detour factor at 10 m/s = 2 minutes.
-        assertEquals(2, estimator.estimateMinutes(1_000.0, "CAB_CAR"))
+        // 1,000 m straight-line x 1.35 road-detour factor at 10 m/s = 2.25 minutes, rounded up.
+        assertEquals(3, estimator.estimateMinutes(1_000.0, "CAB_CAR"))
     }
 
     @Test
