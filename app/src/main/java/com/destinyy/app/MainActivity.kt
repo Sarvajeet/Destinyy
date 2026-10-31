@@ -22,10 +22,15 @@ import java.util.Locale
 class MainActivity : ComponentActivity() {
     private var requestedStops: List<JourneyLegDraft> = emptyList()
 
-    private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        if (it[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
-            it[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-        ) {
+    private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        if (hasLocationPermission()) {
+            if (Build.VERSION.SDK_INT >= 33 && result[Manifest.permission.POST_NOTIFICATIONS] == false) {
+                Toast.makeText(
+                    this,
+                    "Notifications are disabled. Enable them in Settings to receive arrival alerts.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
             startJourney()
         } else {
             Toast.makeText(this, "Location permission is needed to track your journey.", Toast.LENGTH_LONG).show()
@@ -39,24 +44,23 @@ class MainActivity : ComponentActivity() {
                 com.destinyy.app.feature.home.HomeScreen(
                     onStart = { stops ->
                         requestedStops = stops
-                        val needed = mutableListOf(
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                            Manifest.permission.ACCESS_COARSE_LOCATION
-                        )
-                        if (Build.VERSION.SDK_INT >= 33) {
-                            needed += Manifest.permission.POST_NOTIFICATIONS
-                        }
-                        val missing = needed.filter {
-                            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-                        }
-                        if (missing.none {
-                                it == Manifest.permission.ACCESS_FINE_LOCATION ||
-                                    it == Manifest.permission.ACCESS_COARSE_LOCATION
+                        val hasLocation = hasLocationPermission()
+                        val needsNotifications = Build.VERSION.SDK_INT >= 33 &&
+                            ContextCompat.checkSelfPermission(
+                                this,
+                                Manifest.permission.POST_NOTIFICATIONS
+                            ) != PackageManager.PERMISSION_GRANTED
+
+                        if (!hasLocation || needsNotifications) {
+                            val requested = mutableListOf<String>()
+                            if (!hasLocation) {
+                                requested += Manifest.permission.ACCESS_FINE_LOCATION
+                                requested += Manifest.permission.ACCESS_COARSE_LOCATION
                             }
-                        ) {
-                            startJourney()
+                            if (needsNotifications) requested += Manifest.permission.POST_NOTIFICATIONS
+                            permissions.launch(requested.toTypedArray())
                         } else {
-                            permissions.launch(missing.toTypedArray())
+                            startJourney()
                         }
                     },
                     onStop = {
@@ -67,6 +71,10 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun hasLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
     @Suppress("DEPRECATION")
     private fun startJourney() {
