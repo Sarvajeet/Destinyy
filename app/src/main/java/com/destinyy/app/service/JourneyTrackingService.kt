@@ -148,7 +148,11 @@ class JourneyTrackingService : LifecycleService() {
         val smoothedSpeed = measuredSpeed?.let { sample ->
             gpsEtaEstimator.addSpeedSample(
                 speedMetersPerSecond = sample,
-                speedAccuracyMetersPerSecond = location.takeIf { it.hasSpeed() && it.hasSpeedAccuracy() }
+                speedAccuracyMetersPerSecond = location.takeIf {
+                    it.hasSpeed() &&
+                        (!it.hasSpeedAccuracy() || it.speedAccuracyMetersPerSecond <= MAX_SPEED_ACCURACY_METERS_PER_SECOND)
+                }?.takeIf { it.speed.toDouble() == sample }
+                    ?.takeIf { it.hasSpeedAccuracy() }
                     ?.speedAccuracyMetersPerSecond?.toDouble(),
                 mode = stop.mode
             )
