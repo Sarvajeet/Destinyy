@@ -174,7 +174,7 @@ fun HomeScreen(onStart: (List<JourneyLegDraft>) -> Unit, onStop: () -> Unit) {
                 Text("Stop tracking")
             }
             Text(
-                "Location is used only while a journey is active. ETA values are approximate until route-based navigation is integrated.",
+                "GPS ETA uses precise location and your measured movement speed. It may pause while you are stopped or GPS signal is weak. Road-route and live-traffic routing are not included yet.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
