@@ -23,7 +23,7 @@ class MainActivity : ComponentActivity() {
     private var requestedStops: List<JourneyLegDraft> = emptyList()
 
     private val permissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-        if (hasLocationPermission()) {
+        if (hasPreciseLocationPermission()) {
             if (Build.VERSION.SDK_INT >= 33 && result[Manifest.permission.POST_NOTIFICATIONS] == false) {
                 Toast.makeText(
                     this,
@@ -33,7 +33,11 @@ class MainActivity : ComponentActivity() {
             }
             startJourney()
         } else {
-            Toast.makeText(this, "Location permission is needed to track your journey.", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                this,
+                "Precise location permission is required for GPS-based ETA. Choose Precise while granting location access.",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -44,7 +48,7 @@ class MainActivity : ComponentActivity() {
                 com.destinyy.app.feature.home.HomeScreen(
                     onStart = { stops ->
                         requestedStops = stops
-                        val hasLocation = hasLocationPermission()
+                        val hasLocation = hasPreciseLocationPermission()
                         val needsNotifications = Build.VERSION.SDK_INT >= 33 &&
                             ContextCompat.checkSelfPermission(
                                 this,
@@ -72,9 +76,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun hasLocationPermission(): Boolean =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    private fun hasPreciseLocationPermission(): Boolean =
+        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
     @Suppress("DEPRECATION")
     private fun startJourney() {
