@@ -17,7 +17,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.IconCompat
 import androidx.lifecycle.LifecycleService
 import com.destinyy.app.MainActivity
-import com.destinyy.app.domain.eta.EtaEstimator
+import com.destinyy.app.domain.eta.GpsEtaEstimator
 import com.google.android.gms.location.*
 
 private data class TrackedStop(
@@ -34,6 +34,8 @@ class JourneyTrackingService : LifecycleService() {
     private var activeStopIndex = 0
     private val fired = mutableSetOf<Int>()
     private var previousEta: Int? = null
+    private val gpsEtaEstimator = GpsEtaEstimator()
+    private var previousLocation: Location? = null
 
     private val callback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -96,18 +98,20 @@ class JourneyTrackingService : LifecycleService() {
         activeStopIndex = 0
         fired.clear()
         previousEta = null
+        gpsEtaEstimator.reset()
+        previousLocation = null
 
         startForeground(NOTIFICATION_ID, ongoing("Getting location…"))
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED
-        ) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             stopTracking()
             return START_NOT_STICKY
         }
 
-        val request = LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 30_000L)
-            .setMinUpdateIntervalMillis(15_000L)
-            .setMinUpdateDistanceMeters(40f)
+        // High-accuracy fused updates use GNSS/GPS where available and combine
+        // other device sensors to improve stability. Tracking is foreground-only.
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5_000L)
+            .setMinUpdateIntervalMillis(2_500L)
+            .setMinUpdateDistanceMeters(5f)
             .build()
 
         try {
@@ -120,6 +124,15 @@ class JourneyTrackingService : LifecycleService() {
     }
 
     private fun handleLocation(location: Location) {
+        // Discard weak fixes rather than letting GPS drift trigger false arrivals.
+        if (location.hasAccuracy() && location.accuracy > MAX_ACCEPTABLE_ACCURACY_METERS) {
+            NotificationManagerCompat.from(this).notify(
+                NOTIFICATION_ID,
+                ongoing("Weak GPS signal · waiting for a more accurate fix")
+            )
+            return
+        }
+
         val stop = stops.getOrNull(activeStopIndex) ?: return
         val distance = FloatArray(1).also {
             Location.distanceBetween(location.latitude, location.longitude, stop.latitude, stop.longitude, it)
@@ -127,28 +140,75 @@ class JourneyTrackingService : LifecycleService() {
 
         if (distance <= ARRIVAL_RADIUS_METERS) {
             completeCurrentStop(stop)
+            previousLocation = Location(location)
             return
         }
 
-        val eta = EtaEstimator.minutesFromStraightLineMeters(distance.toDouble(), stop.mode)
-        NotificationManagerCompat.from(this).notify(
-            NOTIFICATION_ID,
-            ongoing("About $eta min away · approximate estimate", eta)
-        )
+        val measuredSpeed = gpsSpeedSample(location)
+        val smoothedSpeed = measuredSpeed?.let { sample ->
+            gpsEtaEstimator.addSpeedSample(
+                speedMetersPerSecond = sample,
+                speedAccuracyMetersPerSecond = location.takeIf { it.hasSpeedAccuracy() }
+                    ?.speedAccuracyMetersPerSecond?.toDouble(),
+                mode = stop.mode
+            )
+        } ?: gpsEtaEstimator.currentSpeedMetersPerSecond
 
-        val thresholds = stop.alertMinutes.sortedDescending()
-        val lastEta = previousEta
-        if (lastEta == null) {
-            thresholds.firstOrNull { eta <= it }?.let { threshold ->
-                thresholds.filter { it >= threshold }.forEach(fired::add)
-                sendReminder(threshold, eta)
-            }
+        val eta = gpsEtaEstimator.estimateMinutes(distance.toDouble(), stop.mode)
+        val notificationText = if (eta != null) {
+            "GPS ETA about $eta min · based on your live movement"
         } else {
-            thresholds.forEach { threshold ->
-                if (threshold !in fired && lastEta > threshold && eta <= threshold) sendReminder(threshold, eta)
+            if ((smoothedSpeed ?: 0.0) < 0.8) {
+                "Currently stopped · ETA updates when GPS detects movement"
+            } else {
+                "Calibrating GPS speed · ETA will appear shortly"
             }
         }
-        previousEta = eta
+        NotificationManagerCompat.from(this).notify(
+            NOTIFICATION_ID,
+            ongoing(notificationText, eta)
+        )
+
+        if (eta != null) {
+            val thresholds = stop.alertMinutes.sortedDescending()
+            val lastEta = previousEta
+            if (lastEta == null) {
+                thresholds.firstOrNull { eta <= it }?.let { threshold ->
+                    thresholds.filter { it >= threshold }.forEach(fired::add)
+                    sendReminder(threshold, eta)
+                }
+            } else {
+                thresholds.forEach { threshold ->
+                    if (threshold !in fired && lastEta > threshold && eta <= threshold) {
+                        sendReminder(threshold, eta)
+                    }
+                }
+            }
+            previousEta = eta
+        }
+        previousLocation = Location(location)
+    }
+
+    /**
+     * Prefer the speed reported by Android's location provider when its speed
+     * accuracy is useful. Otherwise derive ground speed between consecutive
+     * monotonic GPS fixes, ignoring very small movements within GPS noise.
+     */
+    private fun gpsSpeedSample(location: Location): Double? {
+        val reportedSpeedIsUsable = location.hasSpeed() &&
+            (!location.hasSpeedAccuracy() || location.speedAccuracyMetersPerSecond <= MAX_SPEED_ACCURACY_METERS_PER_SECOND)
+
+        if (reportedSpeedIsUsable) return location.speed.toDouble()
+
+        val previous = previousLocation ?: return null
+        val elapsedSeconds = (location.elapsedRealtimeNanos - previous.elapsedRealtimeNanos) / 1_000_000_000.0
+        if (!elapsedSeconds.isFinite() || elapsedSeconds !in MIN_SPEED_SAMPLE_SECONDS..MAX_SPEED_SAMPLE_SECONDS) {
+            return null
+        }
+
+        val travelledMeters = previous.distanceTo(location).toDouble()
+        if (!travelledMeters.isFinite() || travelledMeters < MIN_MOVEMENT_METERS) return 0.0
+        return travelledMeters / elapsedSeconds
     }
 
     private fun completeCurrentStop(stop: TrackedStop) {
@@ -156,6 +216,8 @@ class JourneyTrackingService : LifecycleService() {
         activeStopIndex += 1
         fired.clear()
         previousEta = null
+        gpsEtaEstimator.reset()
+        previousLocation = null
 
         if (activeStopIndex >= stops.size) {
             notify(
@@ -312,5 +374,10 @@ class JourneyTrackingService : LifecycleService() {
         private const val ARRIVAL_RADIUS_METERS = 150f
         private const val REMINDER_NOTIFICATION_BASE = 2500
         private const val ARRIVAL_NOTIFICATION_BASE = 7000
+        private const val MAX_ACCEPTABLE_ACCURACY_METERS = 60f
+        private const val MAX_SPEED_ACCURACY_METERS_PER_SECOND = 3f
+        private const val MIN_MOVEMENT_METERS = 3.0
+        private const val MIN_SPEED_SAMPLE_SECONDS = 2.0
+        private const val MAX_SPEED_SAMPLE_SECONDS = 30.0
     }
 }
